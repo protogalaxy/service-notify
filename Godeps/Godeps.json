@@ -1,0 +1,37 @@
+{
+	"ImportPath": "github.com/protogalaxy/service-notify",
+	"GoVersion": "go1.4",
+	"Packages": [
+		"./..."
+	],
+	"Deps": [
+		{
+			"ImportPath": "github.com/arjantop/cuirass",
+			"Rev": "ea351a33c9fd60af49cc1fe24216c1383c5ba0e5"
+		},
+		{
+			"ImportPath": "github.com/arjantop/saola",
+			"Rev": "a902961218a990b828c2c8a43223b482ba543554"
+		},
+		{
+			"ImportPath": "github.com/arjantop/vaquita",
+			"Rev": "58e0769eff91a11d89c2aaf91fca27552e35129a"
+		},
+		{
+			"ImportPath": "github.com/golang/glog",
+			"Rev": "44145f04b68cf362d9c4df2182967c2275eaefed"
+		},
+		{
+			"ImportPath": "github.com/julienschmidt/httprouter",
+			"Rev": "46807412fe50aaceb73bb57061c2230fd26a1640"
+		},
+		{
+			"ImportPath": "github.com/protogalaxy/common/serviceerror",
+			"Rev": "7d51f08641997c4a40fccfa63aa988c1ff05a60c"
+		},
+		{
+			"ImportPath": "golang.org/x/net/context",
+			"Rev": "67f25490433376b5f7da086c0b9283fcdeca3a7b"
+		}
+	]
+}
