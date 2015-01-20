@@ -57,7 +57,7 @@ func main() {
 		serviceerror.NewErrorResponseFilter(),
 		serviceerror.NewErrorLoggerFilter()))
 
-	log.Fatal(httpservice.Serve(":12000", saola.Apply(
+	log.Fatal(httpservice.Serve(":10100", saola.Apply(
 		endpoint,
 		httpservice.NewStdRequestLogFilter())))
 }
