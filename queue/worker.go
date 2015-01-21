@@ -26,24 +26,32 @@ import (
 	"golang.org/x/net/context"
 )
 
+type DeviceMessaging interface {
+	GetUserDevices(ctx context.Context, userId string) (*UserDevices, error)
+	SocketSendMessage(ctx context.Context, deviceId string, data []byte) error
+}
+
 type Worker struct {
-	Client   *httpservice.Client
-	Executor cuirass.Executor
+	MessageHandler func(QueuedMessage)
 }
 
 func (w *Worker) Do(messages <-chan QueuedMessage) {
 	for msg := range messages {
-		getUserDevices := NewGetUserDevicesCommand(w.Client, msg.UserId)
-		userDevices, err := ExecGetUserDevicesCommand(context.Background(), w.Executor, getUserDevices)
+		w.MessageHandler(msg)
+	}
+}
+
+func MessageHandler(messaging DeviceMessaging) func(QueuedMessage) {
+	return func(msg QueuedMessage) {
+		userDevices, err := messaging.GetUserDevices(context.Background(), msg.UserId)
 		if err != nil {
 			glog.Errorf("Unable to retrieve devices for user %s", msg.UserId)
-			continue
+			return
 		}
 
 		for _, device := range userDevices.Devices {
 			if device.Type == "websocket" {
-				socketSendMessage := NewSocketSendMessageCommand(w.Client, device.Id, msg.Data)
-				err := ExecSocketSendMessageCommand(context.Background(), w.Executor, socketSendMessage)
+				err := messaging.SocketSendMessage(context.Background(), device.Id, msg.Data)
 				if err != nil {
 					glog.Errorf("Unable to send message to device '%s:%s'", device.Type, device.Id)
 				}
@@ -64,15 +72,20 @@ type UserDevices struct {
 	Devices []Device `json:"devices"`
 }
 
-func NewGetUserDevicesCommand(client *httpservice.Client, userId string) *cuirass.Command {
-	return cuirass.NewCommand("GetUserDevices", func(ctx context.Context) (interface{}, error) {
+type MessagingClient struct {
+	Client   *httpservice.Client
+	Executor cuirass.Executor
+}
+
+func (c MessagingClient) GetUserDevices(ctx context.Context, userId string) (*UserDevices, error) {
+	cmd := cuirass.NewCommand("GetUserDevices", func(ctx context.Context) (interface{}, error) {
 		req, err := http.NewRequest("GET", "http://localhost:10000/users/"+userId+"/devices", nil)
 		req.Header.Set("Content-Type", "application/json; charset=utf-8")
 		if err != nil {
 			return nil, err
 		}
 
-		res, err := client.Do(ctx, req)
+		res, err := c.Client.Do(ctx, req)
 		if res.StatusCode == http.StatusOK {
 			var userDevices UserDevices
 			decoder := json.NewDecoder(res.Body)
@@ -84,10 +97,8 @@ func NewGetUserDevicesCommand(client *httpservice.Client, userId string) *cuiras
 			return nil, err
 		}
 	}).Build()
-}
 
-func ExecGetUserDevicesCommand(ctx context.Context, ex cuirass.Executor, cmd *cuirass.Command) (*UserDevices, error) {
-	r, err := ex.Exec(ctx, cmd)
+	r, err := c.Executor.Exec(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -97,20 +108,18 @@ func ExecGetUserDevicesCommand(ctx context.Context, ex cuirass.Executor, cmd *cu
 	return nil, errors.New("invalid response type")
 }
 
-func NewSocketSendMessageCommand(client *httpservice.Client, deviceId string, data []byte) *cuirass.Command {
-	return cuirass.NewCommand("SocketSendMessage", func(ctx context.Context) (interface{}, error) {
+func (c MessagingClient) SocketSendMessage(ctx context.Context, deviceId string, data []byte) error {
+	cmd := cuirass.NewCommand("SocketSendMessage", func(ctx context.Context) (interface{}, error) {
 		req, err := http.NewRequest("POST", "http://localhost:11001/websocket/"+deviceId+"/send", bytes.NewReader(data))
 		req.Header.Set("Content-Type", "application/octet-stream")
 		if err != nil {
 			return nil, err
 		}
 
-		_, err = client.Do(ctx, req)
+		_, err = c.Client.Do(ctx, req)
 		return nil, err
 	}).Build()
-}
 
-func ExecSocketSendMessageCommand(ctx context.Context, ex cuirass.Executor, cmd *cuirass.Command) error {
-	_, err := ex.Exec(ctx, cmd)
+	_, err := c.Executor.Exec(ctx, cmd)
 	return err
 }

@@ -42,8 +42,7 @@ func main() {
 	exec := cuirass.NewExecutor(config)
 
 	worker := &queue.Worker{
-		Client:   httpClient,
-		Executor: exec,
+		MessageHandler: queue.MessageHandler(queue.MessagingClient{httpClient, exec}),
 	}
 	queue := queue.NewChannelQueue(worker.Do)
 	go queue.Start()
