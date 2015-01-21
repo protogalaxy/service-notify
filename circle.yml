@@ -1,0 +1,12 @@
+machine:
+  services:
+    - docker
+
+
+dependencies:
+  override:
+    - echo
+
+test:
+  override:
+    - build/run.sh
