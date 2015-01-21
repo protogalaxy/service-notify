@@ -28,7 +28,7 @@ import (
 
 type Worker struct {
 	Client   *httpservice.Client
-	Executor *cuirass.Executor
+	Executor cuirass.Executor
 }
 
 func (w *Worker) Do(messages <-chan QueuedMessage) {
@@ -86,7 +86,7 @@ func NewGetUserDevicesCommand(client *httpservice.Client, userId string) *cuiras
 	}).Build()
 }
 
-func ExecGetUserDevicesCommand(ctx context.Context, ex *cuirass.Executor, cmd *cuirass.Command) (*UserDevices, error) {
+func ExecGetUserDevicesCommand(ctx context.Context, ex cuirass.Executor, cmd *cuirass.Command) (*UserDevices, error) {
 	r, err := ex.Exec(ctx, cmd)
 	if err != nil {
 		return nil, err
@@ -110,7 +110,7 @@ func NewSocketSendMessageCommand(client *httpservice.Client, deviceId string, da
 	}).Build()
 }
 
-func ExecSocketSendMessageCommand(ctx context.Context, ex *cuirass.Executor, cmd *cuirass.Command) error {
+func ExecSocketSendMessageCommand(ctx context.Context, ex cuirass.Executor, cmd *cuirass.Command) error {
 	_, err := ex.Exec(ctx, cmd)
 	return err
 }
