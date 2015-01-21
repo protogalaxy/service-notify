@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/bin/bash
 
 set -eu -o pipefail
 
@@ -11,9 +11,10 @@ pg::build::build_image
 
 readonly GOPATH=/go/src
 readonly PROJECT_NAME=service-notify
-readonly PROJECT_NAME_FULL=github.com/protogalaxy/service-notify
-readonly PROJECT_DIR="${GOPATH}/${PROJECT_NAME_FULL}"
+readonly PROJECT_PATH="github.com/protogalaxy/${PROJECT_NAME}"
+readonly PROJECT_DIR="${GOPATH}/${PROJECT_PATH}"
 
+pg::build::run_command build/test.sh
 pg::build::run_build $PROJECT_DIR
 
 pg::build::build_release_image "${PROJECT_NAME}"
