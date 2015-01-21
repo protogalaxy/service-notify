@@ -37,7 +37,7 @@ function pg::build::run_build() {
   echo "+++ Copying built files from the build container: ${cid}"
   docker cp $cid:/build/main .
   echo "+++ Removing the build container: ${cid}"
-  docker rm $cid > /dev/null
+  docker rm $cid 2> /dev/null || true
   rm -rf cid
 }
 
@@ -57,7 +57,7 @@ function pg::build::run_command() {
   cid=$(cat cid)
 
   echo "+++ Removing the build container: ${cid}"
-  docker rm $cid > /dev/null
+  docker rm $cid 2> /dev/null || true
   rm -rf cid
 }
 
