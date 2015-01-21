@@ -2,6 +2,9 @@ machine:
   services:
     - docker
 
+general:
+  artifacts:
+    - target
 
 dependencies:
   override:

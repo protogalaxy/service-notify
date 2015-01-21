@@ -5,6 +5,22 @@ set -eu -o pipefail
 PG_ROOT=$(pwd)
 cd $PG_ROOT
 
+RUN_ENV="${RUN_ENV:-local}"
+
+readonly LOCAL_TARGET_ROOT="${PG_ROOT}/target"
+
+readonly DOCKER_TARGET_ROOT="/target"
+
+if [[ "${RUN_ENV}" == "docker" ]]; then
+  readonly TARGET_ROOT="${DOCKER_TARGET_ROOT}"
+else
+  readonly TARGET_ROOT="${LOCAL_TARGET_ROOT}"
+fi
+
+readonly TARGET_BIN="${TARGET_ROOT}/bin"
+readonly TARGET_TEST="${TARGET_ROOT}/test"
+readonly TARGET_TEST_COVERAGE="${TARGET_TEST}/coverage"
+
 readonly PG_BUILD_IMAGE_NAME=protogalaxy-build
 
 function pg::build::verify() {
@@ -29,13 +45,13 @@ function pg::build::run_build() {
   docker run --cidfile=cid \
     -v "$(pwd)":"${project_path}" \
     -w "${project_path}" \
-    "${PG_BUILD_IMAGE_NAME}" godep go build -o /build/main
+    "${PG_BUILD_IMAGE_NAME}" godep go build -o /target/bin/main
 
   local cid
   cid=$(cat cid)
 
   echo "+++ Copying built files from the build container: ${cid}"
-  docker cp $cid:/build/main .
+  docker cp $cid:$DOCKER_TARGET_ROOT $PG_ROOT
   echo "+++ Removing the build container: ${cid}"
   docker rm $cid 2> /dev/null || true
   rm -rf cid
@@ -49,6 +65,7 @@ function pg::build::run_command() {
   echo "+++ Running command ..."
   rm -rf cid
   docker run --cidfile=cid \
+    -e RUN_ENV=docker \
     -v "$(pwd)":"${path}" \
     -w "${path}" \
     "${PG_BUILD_IMAGE_NAME}" "$cmd"
@@ -56,7 +73,10 @@ function pg::build::run_command() {
   local cid
   cid=$(cat cid)
 
-  echo "+++ Removing the build container: ${cid}"
+  echo "+++ Copying built files from the build container"
+  docker cp $cid:$DOCKER_TARGET_ROOT $PG_ROOT
+
+  echo "+++ Removing the build container"
   docker rm $cid 2> /dev/null || true
   rm -rf cid
 }

@@ -6,4 +6,4 @@ EXPOSE 10100
 
 ENTRYPOINT ["./main", "-logtostderr", "-v=4"]
 
-COPY ./main .
+COPY ./target/bin/main .
