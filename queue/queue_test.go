@@ -58,13 +58,16 @@ func TestChannelQueueNumWorkersStarted(t *testing.T) {
 	var counter int
 	q := queue.NewChannelQueue(func(c <-chan queue.QueuedMessage) {
 		lock.Lock()
+		defer lock.Unlock()
 		counter += 1
-		lock.Unlock()
 	}, func(p *queue.Properties) {
 		p.NumWorkers = 4
 	})
 	go q.Close()
 	q.Start()
+
+	lock.Lock()
+	defer lock.Unlock()
 	if counter != 4 {
 		t.Fatalf("Wrong numbeer of workers started: expecting 4 but got %d", counter)
 	}
@@ -72,8 +75,11 @@ func TestChannelQueueNumWorkersStarted(t *testing.T) {
 
 func TestChannelQueueSize(t *testing.T) {
 	t.Parallel()
+	var lock sync.Mutex
 	var size int
 	q := queue.NewChannelQueue(func(c <-chan queue.QueuedMessage) {
+		lock.Lock()
+		defer lock.Unlock()
 		size = cap(c)
 	}, func(p *queue.Properties) {
 		p.NumWorkers = 1
@@ -82,6 +88,9 @@ func TestChannelQueueSize(t *testing.T) {
 	// We must start and block so we make sure that worker goroutines are created.
 	go q.Close()
 	q.Start()
+
+	lock.Lock()
+	defer lock.Unlock()
 	if size != 11 {
 		t.Fatalf("Wrong queue size: expecting 11 but got %d", size)
 	}
