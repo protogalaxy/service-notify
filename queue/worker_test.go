@@ -35,8 +35,8 @@ func TestWorkerHandlerMessagesAreSent(t *testing.T) {
 			return &queue.UserDevices{
 				UserId: "user1",
 				Devices: []queue.Device{
-					queue.Device{"websocket", "id1"},
-					queue.Device{"websocket", "id2"},
+					queue.Device{Type: "websocket", Id: "id1"},
+					queue.Device{Type: "websocket", Id: "id2"},
 				},
 			}, nil
 		},
@@ -65,7 +65,7 @@ func TestWorkerHandlerInvalidDeviceType(t *testing.T) {
 			return &queue.UserDevices{
 				UserId: "user1",
 				Devices: []queue.Device{
-					queue.Device{"sometype", ""},
+					queue.Device{Type: "sometype", Id: ""},
 				},
 			}, nil
 		},

@@ -5,6 +5,8 @@ set -eu -o pipefail
 PG_ROOT=$(pwd)
 cd $PG_ROOT
 
+source "${PG_ROOT}/build/golang.sh"
+
 RUN_ENV="${RUN_ENV:-local}"
 
 readonly LOCAL_TARGET_ROOT="${PG_ROOT}/target"

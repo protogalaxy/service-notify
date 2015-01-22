@@ -15,6 +15,7 @@ readonly PROJECT_PATH="github.com/protogalaxy/${PROJECT_NAME}"
 readonly PROJECT_DIR="${GOPATH}/${PROJECT_PATH}"
 
 pg::build::run_command build/test.sh
+pg::build::run_command build/style.sh
 pg::build::run_build $PROJECT_DIR
 
 pg::build::build_release_image "${PROJECT_NAME}"
