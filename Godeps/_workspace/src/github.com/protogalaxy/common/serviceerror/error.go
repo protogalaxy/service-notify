@@ -1,7 +1,10 @@
 package serviceerror
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -28,5 +31,23 @@ func BadRequest(msg string, err error) ErrorResponse {
 		StatusCode: http.StatusBadRequest,
 		Message:    msg,
 		Err:        err,
+	}
+}
+
+func Decode(body io.Reader) error {
+	var errorResponse struct {
+		Message string `json:"message"`
+		Err     string `json:"error"`
+	}
+	decoder := json.NewDecoder(body)
+	if err := decoder.Decode(&errorResponse); err != nil {
+		return fmt.Errorf("Error decoding unexpected response: %s", err)
+	}
+	if errorResponse.Message == "" {
+		return errors.New("Missing messages field")
+	}
+	return ErrorResponse{
+		Message: errorResponse.Message,
+		Err:     errors.New(errorResponse.Err),
 	}
 }

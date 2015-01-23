@@ -17,12 +17,12 @@ package queue
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/arjantop/cuirass"
 	"github.com/arjantop/saola/httpservice"
 	"github.com/golang/glog"
+	"github.com/protogalaxy/common/serviceerror"
 	"golang.org/x/net/context"
 )
 
@@ -86,16 +86,18 @@ func (c MessagingClient) GetUserDevices(ctx context.Context, userId string) (*Us
 		}
 
 		res, err := c.Client.Do(ctx, req)
-		if res.StatusCode == http.StatusOK {
-			var userDevices UserDevices
-			decoder := json.NewDecoder(res.Body)
-			if err := decoder.Decode(&userDevices); err != nil {
-				return nil, err
-			}
-			return &userDevices, nil
-		} else {
+		if err != nil {
 			return nil, err
 		}
+		if res.StatusCode != http.StatusOK {
+			return nil, serviceerror.Decode(res.Body)
+		}
+		var userDevices UserDevices
+		decoder := json.NewDecoder(res.Body)
+		if err := decoder.Decode(&userDevices); err != nil {
+			return nil, err
+		}
+		return &userDevices, nil
 	}).Build()
 
 	r, err := c.Executor.Exec(ctx, cmd)
@@ -105,7 +107,7 @@ func (c MessagingClient) GetUserDevices(ctx context.Context, userId string) (*Us
 	if result, ok := r.(*UserDevices); ok {
 		return result, nil
 	}
-	return nil, errors.New("invalid response type")
+	return r.(*UserDevices), nil
 }
 
 func (c MessagingClient) SocketSendMessage(ctx context.Context, deviceId string, data []byte) error {
@@ -116,8 +118,14 @@ func (c MessagingClient) SocketSendMessage(ctx context.Context, deviceId string,
 			return nil, err
 		}
 
-		_, err = c.Client.Do(ctx, req)
-		return nil, err
+		res, err := c.Client.Do(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		if res.StatusCode != http.StatusAccepted {
+			return nil, serviceerror.Decode(res.Body)
+		}
+		return nil, nil
 	}).Build()
 
 	_, err := c.Executor.Exec(ctx, cmd)
