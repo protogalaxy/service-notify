@@ -30,13 +30,5 @@ set -eu -o pipefail
 PG_ROOT=$(dirname "${BASH_SOURCE}")/..
 source "$PG_ROOT/build/common.sh"
 
-echo "+++ Checking go code formatting ..."
-diff=$(gofmt -d `pg::golang::find_files`)
-if [[ -n ${diff} ]]; then
-  echo "+++ Unformatted Go files:"
-  echo "${diff}"
-  exit 1
-fi
-
-echo "+++ Running 'go vet'"
-go vet `pg::golang::find_dirs`
+echo "+++ Building executables ..."
+godep go build -o "${TARGET_BIN}/main"
