@@ -12,53 +12,48 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-package service
+
+//go:generate protoc --go_out=plugins=grpc:. -I ../protos ../protos/notify.proto
+
+package notify
 
 import (
-	"io/ioutil"
-	"net/http"
+	"errors"
 
-	"github.com/arjantop/saola/httpservice"
 	"github.com/golang/glog"
 	"github.com/protogalaxy/service-notify/queue"
 	"golang.org/x/net/context"
 )
 
-type NotifyUserDevices struct {
+type Notifier struct {
 	Queue queue.MessageQueue
 }
 
-// DoHTTP implements saola.HttpService.
-func (h *NotifyUserDevices) DoHTTP(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-	userId := httpservice.GetParams(ctx).Get("userId")
-	data, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		return err
+func (n *Notifier) Send(ctx context.Context, req *SendRequest) (*SendReply, error) {
+	if err := validateRequest(req); err != nil {
+		return nil, err
 	}
-
 	msg := queue.QueuedMessage{
-		UserId: userId,
-		Data:   data,
+		UserId: req.UserId,
+		Data:   req.Data,
 	}
 
 	select {
-	case h.Queue.Messages() <- msg:
-		glog.V(3).Infof("Message to user '%s' queued", userId)
+	case n.Queue.Messages() <- msg:
+		glog.V(3).Infof("Message for user '%s' queued", req.UserId)
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
 
-	w.WriteHeader(http.StatusAccepted)
-	w.Header().Set("Content-Type", "application/json; utf-8")
-	w.Write([]byte("{}\n"))
+	return &SendReply{}, nil
+}
+
+func validateRequest(req *SendRequest) error {
+	if req.UserId == "" {
+		return errors.New("missing user id")
+	}
+	if len(req.Data) == 0 {
+		return errors.New("empty message")
+	}
 	return nil
-}
-
-// Do implements saola.Service.
-func (h *NotifyUserDevices) Do(ctx context.Context) error {
-	return httpservice.Do(h, ctx)
-}
-
-func (h *NotifyUserDevices) Name() string {
-	return "notifyuserdevices"
 }

@@ -16,18 +16,18 @@ package main
 
 import (
 	"flag"
-	"log"
 	"math/rand"
+	"net"
 	"net/http"
 	"time"
 
 	"github.com/arjantop/cuirass"
-	"github.com/arjantop/saola"
 	"github.com/arjantop/saola/httpservice"
 	"github.com/arjantop/vaquita"
-	"github.com/protogalaxy/common/serviceerror"
+	"github.com/golang/glog"
+	"github.com/protogalaxy/service-notify/notify"
 	"github.com/protogalaxy/service-notify/queue"
-	"github.com/protogalaxy/service-notify/service"
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -50,16 +50,14 @@ func main() {
 	queue := queue.NewChannelQueue(worker.Do)
 	go queue.Start()
 
-	endpoint := httpservice.NewEndpoint()
-	endpoint.POST("/users/:userId/send", saola.Apply(
-		&service.NotifyUserDevices{
-			Queue: queue,
-		},
-		httpservice.NewCancellationFilter(),
-		serviceerror.NewErrorResponseFilter(),
-		serviceerror.NewErrorLoggerFilter()))
+	s, err := net.Listen("tcp", ":9090")
+	if err != nil {
+		glog.Fatalf("failed to listen: %v", err)
+	}
 
-	log.Fatal(httpservice.Serve(":10100", saola.Apply(
-		endpoint,
-		httpservice.NewStdRequestLogFilter())))
+	grpcServer := grpc.NewServer()
+	notify.RegisterNotifierServer(grpcServer, &notify.Notifier{
+		Queue: queue,
+	})
+	grpcServer.Serve(s)
 }
