@@ -18,15 +18,13 @@ import (
 	"flag"
 	"math/rand"
 	"net"
-	"net/http"
 	"time"
 
-	"github.com/arjantop/cuirass"
-	"github.com/arjantop/saola/httpservice"
-	"github.com/arjantop/vaquita"
 	"github.com/golang/glog"
+	"github.com/protogalaxy/service-notify/devicepresence"
 	"github.com/protogalaxy/service-notify/notify"
 	"github.com/protogalaxy/service-notify/queue"
+	"github.com/protogalaxy/service-notify/socket"
 	"google.golang.org/grpc"
 )
 
@@ -34,18 +32,22 @@ func main() {
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
 
-	httpClient := &httpservice.Client{
-		Transport: &http.Transport{},
+	conn, err := grpc.Dial("localhost:9091")
+	if err != nil {
+		glog.Fatalf("could not connect: %v", err)
 	}
+	defer conn.Close()
+	dpc := devicepresence.NewPresenceManagerClient(conn)
 
-	config := vaquita.NewEmptyMapConfig()
-	exec := cuirass.NewExecutor(config)
+	conn2, err := grpc.Dial("localhost:9092")
+	if err != nil {
+		glog.Fatalf("could not connect: %v", err)
+	}
+	defer conn.Close()
+	sc := socket.NewSenderClient(conn2)
 
 	worker := &queue.Worker{
-		MessageHandler: queue.MessageHandler(queue.MessagingClient{
-			Client:   httpClient,
-			Executor: exec,
-		}),
+		MessageHandler: queue.MessageHandler(dpc, sc),
 	}
 	queue := queue.NewChannelQueue(worker.Do)
 	go queue.Start()

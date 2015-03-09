@@ -12,24 +12,18 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 package queue
 
 import (
-	"bytes"
-	"encoding/json"
-	"net/http"
+	"io"
+	"strconv"
 
-	"github.com/arjantop/cuirass"
-	"github.com/arjantop/saola/httpservice"
 	"github.com/golang/glog"
-	"github.com/protogalaxy/common/serviceerror"
+	"github.com/protogalaxy/service-notify/devicepresence"
+	"github.com/protogalaxy/service-notify/socket"
 	"golang.org/x/net/context"
 )
-
-type DeviceMessaging interface {
-	GetUserDevices(ctx context.Context, userId string) (*UserDevices, error)
-	SocketSendMessage(ctx context.Context, deviceId string, data []byte) error
-}
 
 type Worker struct {
 	MessageHandler func(QueuedMessage)
@@ -41,93 +35,47 @@ func (w *Worker) Do(messages <-chan QueuedMessage) {
 	}
 }
 
-func MessageHandler(messaging DeviceMessaging) func(QueuedMessage) {
+func MessageHandler(presenceClient devicepresence.PresenceManagerClient, socketClient socket.SenderClient) func(QueuedMessage) {
 	return func(msg QueuedMessage) {
-		userDevices, err := messaging.GetUserDevices(context.Background(), msg.UserId)
+		// TODO: add timeout
+		stream, err := presenceClient.GetDevices(context.Background(), &devicepresence.DevicesRequest{
+			UserId: msg.UserId,
+		})
 		if err != nil {
 			glog.Errorf("Unable to retrieve devices for user %s", msg.UserId)
 			return
 		}
 
-		for _, device := range userDevices.Devices {
-			if device.Type == "websocket" {
-				err := messaging.SocketSendMessage(context.Background(), device.Id, msg.Data)
-				if err != nil {
-					glog.Errorf("Unable to send message to device '%s:%s'", device.Type, device.Id)
-				}
-			} else {
-				glog.Warning("Unsupported device type: %s", device.Type)
+		for {
+			device, err := stream.Recv()
+			if err == io.EOF {
+				break
+			} else if err != nil {
+				glog.Error("Unable to receive the next device")
 			}
+			sendMessageToDevice(socketClient, device, msg.Data)
 		}
 	}
 }
 
-type Device struct {
-	Type string `json:"device_type"`
-	Id   string `json:"device_id"`
-}
-
-type UserDevices struct {
-	UserId  string   `json:"user_id"`
-	Devices []Device `json:"devices"`
-}
-
-type MessagingClient struct {
-	Client   *httpservice.Client
-	Executor cuirass.Executor
-}
-
-func (c MessagingClient) GetUserDevices(ctx context.Context, userId string) (*UserDevices, error) {
-	cmd := cuirass.NewCommand("GetUserDevices", func(ctx context.Context) (interface{}, error) {
-		req, err := http.NewRequest("GET", "http://localhost:10000/users/"+userId+"/devices", nil)
-		req.Header.Set("Content-Type", "application/json; charset=utf-8")
+func sendMessageToDevice(socketClient socket.SenderClient, device *devicepresence.Device, data []byte) {
+	switch device.Type {
+	case devicepresence.Device_WS:
+		socketID, err := strconv.ParseInt(device.Id, 10, 64)
 		if err != nil {
-			return nil, err
+			glog.Errorf("Invalid socket id: %s", err)
+			return
 		}
-
-		res, err := c.Client.Do(ctx, req)
+		// TODO: add timeout
+		_, err = socketClient.SendMessage(context.Background(), &socket.SendRequest{
+			SocketId: socketID,
+			Data:     data,
+		})
 		if err != nil {
-			return nil, err
+			glog.Errorf("Unable to send message to device '%s:%s'", device.Type, device.Id)
+			return
 		}
-		if res.StatusCode != http.StatusOK {
-			return nil, serviceerror.Decode(res.Body)
-		}
-		var userDevices UserDevices
-		decoder := json.NewDecoder(res.Body)
-		if err := decoder.Decode(&userDevices); err != nil {
-			return nil, err
-		}
-		return &userDevices, nil
-	}).Build()
-
-	r, err := c.Executor.Exec(ctx, cmd)
-	if err != nil {
-		return nil, err
+	default:
+		glog.Warning("Unsupported device type: %s", device.Type)
 	}
-	if result, ok := r.(*UserDevices); ok {
-		return result, nil
-	}
-	return r.(*UserDevices), nil
-}
-
-func (c MessagingClient) SocketSendMessage(ctx context.Context, deviceId string, data []byte) error {
-	cmd := cuirass.NewCommand("SocketSendMessage", func(ctx context.Context) (interface{}, error) {
-		req, err := http.NewRequest("POST", "http://localhost:11001/websocket/"+deviceId+"/send", bytes.NewReader(data))
-		req.Header.Set("Content-Type", "application/octet-stream")
-		if err != nil {
-			return nil, err
-		}
-
-		res, err := c.Client.Do(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		if res.StatusCode != http.StatusAccepted {
-			return nil, serviceerror.Decode(res.Body)
-		}
-		return nil, nil
-	}).Build()
-
-	_, err := c.Executor.Exec(ctx, cmd)
-	return err
 }

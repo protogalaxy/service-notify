@@ -1,102 +1,134 @@
+// Copyright (C) 2015 The Protogalaxy Project
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 package queue_test
 
 import (
 	"errors"
+	"io"
 	"testing"
 	"time"
 
+	"github.com/protogalaxy/service-notify/devicepresence"
 	"github.com/protogalaxy/service-notify/queue"
+	"github.com/protogalaxy/service-notify/socket"
 	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 )
 
-type messagingMock struct {
-	GetUserDevicesFunc    func(ctx context.Context, userId string) (*queue.UserDevices, error)
-	SocketSendMessageFunc func(ctx context.Context, deviceId string, data []byte) error
+type SenderMock struct {
+	OnSendMessage func(ctx context.Context, in *socket.SendRequest, opts ...grpc.CallOption) (*socket.SendReply, error)
 }
 
-func (m messagingMock) GetUserDevices(ctx context.Context, userId string) (*queue.UserDevices, error) {
-	if m.GetUserDevicesFunc != nil {
-		return m.GetUserDevicesFunc(ctx, userId)
-	}
-	return nil, nil
+func (m SenderMock) SendMessage(ctx context.Context, in *socket.SendRequest, opts ...grpc.CallOption) (*socket.SendReply, error) {
+	return m.OnSendMessage(ctx, in, opts...)
 }
 
-func (m messagingMock) SocketSendMessage(ctx context.Context, deviceId string, data []byte) error {
-	if m.SocketSendMessageFunc != nil {
-		return m.SocketSendMessageFunc(ctx, deviceId, data)
+type PresenceManagerMock struct {
+	OnGetDevices func(ctx context.Context, in *devicepresence.DevicesRequest, opts ...grpc.CallOption) (devicepresence.PresenceManager_GetDevicesClient, error)
+}
+
+func (m PresenceManagerMock) GetDevices(ctx context.Context, in *devicepresence.DevicesRequest, opts ...grpc.CallOption) (devicepresence.PresenceManager_GetDevicesClient, error) {
+	return m.OnGetDevices(ctx, in, opts...)
+}
+
+type DeviceStream struct {
+	devices []*devicepresence.Device
+	grpc.ClientStream
+}
+
+func MockDeviceStream(devices ...*devicepresence.Device) *DeviceStream {
+	return &DeviceStream{
+		devices: devices,
 	}
-	return nil
+}
+
+func (s *DeviceStream) Recv() (*devicepresence.Device, error) {
+	if len(s.devices) == 0 {
+		return nil, io.EOF
+	}
+	d := s.devices[0]
+	s.devices = s.devices[1:]
+	return d, nil
 }
 
 func TestWorkerHandlerMessagesAreSent(t *testing.T) {
-	called := make(map[string][]byte)
-	m := messagingMock{
-		GetUserDevicesFunc: func(ctx context.Context, userId string) (*queue.UserDevices, error) {
-			return &queue.UserDevices{
-				UserId: "user1",
-				Devices: []queue.Device{
-					queue.Device{Type: "websocket", Id: "id1"},
-					queue.Device{Type: "websocket", Id: "id2"},
-				},
-			}, nil
-		},
-		SocketSendMessageFunc: func(ctx context.Context, deviceId string, data []byte) error {
-			called[deviceId] = data
-			return nil
+	pmm := PresenceManagerMock{
+		OnGetDevices: func(ctx context.Context, in *devicepresence.DevicesRequest, opts ...grpc.CallOption) (devicepresence.PresenceManager_GetDevicesClient, error) {
+			if in.UserId != "user1" {
+				t.Errorf("Unexpected user: %s", in.UserId)
+			}
+
+			return MockDeviceStream(&devicepresence.Device{
+				Id:   "111",
+				Type: devicepresence.Device_WS,
+			}, &devicepresence.Device{
+				Id:   "222",
+				Type: devicepresence.Device_WS,
+			}), nil
 		},
 	}
-	h := queue.MessageHandler(m)
+
+	var messagesSent int
+	sm := SenderMock{
+		OnSendMessage: func(ctx context.Context, in *socket.SendRequest, opts ...grpc.CallOption) (*socket.SendReply, error) {
+			messagesSent += 1
+			if in.SocketId == 111 {
+				if "data" != string(in.Data) {
+					t.Errorf("Unexpected message body")
+				}
+			} else if in.SocketId == 222 {
+				if "data" != string(in.Data) {
+					t.Errorf("Unexpected message body")
+				}
+			} else {
+				t.Error("Unexpected socket id")
+			}
+			return nil, nil
+		},
+	}
+
+	h := queue.MessageHandler(pmm, sm)
 	h(queue.QueuedMessage{"user1", []byte("data")})
-	if len(called) != 2 {
-		t.Errorf("Was expecting sending data to 2 devices but only sent %d", len(called))
-	}
-	if d := called["id1"]; string(d) != "data" {
-		t.Errorf("Incorrect data sent to device: 'data' != '%s'", string(d))
-	}
-	if d := called["id2"]; string(d) != "data" {
-		t.Errorf("Incorrect data sent to device: 'data' != '%s'", string(d))
+	if messagesSent != 2 {
+		t.Errorf("Message sent to too many devices: %d", messagesSent)
 	}
 }
 
 func TestWorkerHandlerInvalidDeviceType(t *testing.T) {
-	var called bool
-	m := messagingMock{
-		GetUserDevicesFunc: func(ctx context.Context, userId string) (*queue.UserDevices, error) {
-			return &queue.UserDevices{
-				UserId: "user1",
-				Devices: []queue.Device{
-					queue.Device{Type: "sometype", Id: ""},
-				},
-			}, nil
-		},
-		SocketSendMessageFunc: func(ctx context.Context, deviceId string, data []byte) error {
-			called = true
-			return nil
+	pmm := PresenceManagerMock{
+		OnGetDevices: func(ctx context.Context, in *devicepresence.DevicesRequest, opts ...grpc.CallOption) (devicepresence.PresenceManager_GetDevicesClient, error) {
+			return MockDeviceStream(&devicepresence.Device{
+				Type: devicepresence.Device_Type(9999),
+			}), nil
 		},
 	}
-	h := queue.MessageHandler(m)
+
+	h := queue.MessageHandler(pmm, nil)
 	h(queue.QueuedMessage{"user1", []byte("data")})
-	if called {
-		t.Error("No data should be sent if the device type is unsupported")
-	}
 }
 
 func TestWorkerGetUserDevicesError(t *testing.T) {
-	var called bool
-	m := messagingMock{
-		GetUserDevicesFunc: func(ctx context.Context, userId string) (*queue.UserDevices, error) {
+	pmm := PresenceManagerMock{
+		OnGetDevices: func(ctx context.Context, in *devicepresence.DevicesRequest, opts ...grpc.CallOption) (devicepresence.PresenceManager_GetDevicesClient, error) {
 			return nil, errors.New("error")
 		},
-		SocketSendMessageFunc: func(ctx context.Context, deviceId string, data []byte) error {
-			called = true
-			return nil
-		},
 	}
-	h := queue.MessageHandler(m)
+
+	h := queue.MessageHandler(pmm, nil)
 	h(queue.QueuedMessage{"user1", []byte("data")})
-	if called {
-		t.Error("No data should be sent if user devices are not retrieved")
-	}
 }
 
 func TestWorkerSendsMessagesToHandler(t *testing.T) {
